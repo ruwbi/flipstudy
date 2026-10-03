@@ -164,12 +164,22 @@ const SPECIAL_CHARS = '!@#$%^&*_-+';
 
 function validateUsername(username){
   username = username || '';
-  if(!username) return {valid:false, message:''};
-  if(username.length < USERNAME_MIN) return {valid:false, message:`Username must be at least ${USERNAME_MIN} characters`};
-  if(username.length > USERNAME_MAX) return {valid:false, message:`Username cannot exceed ${USERNAME_MAX} characters`};
-  if(!/^[A-Za-z0-9_]+$/.test(username)) return {valid:false, message:'Only letters, numbers, and underscores allowed'};
+  const trimmed = username.trim();
+  if(!trimmed) return {valid:false, message:''};
+  if(trimmed.length < USERNAME_MIN) return {valid:false, message:`Username must be at least ${USERNAME_MIN} characters`};
+  if(trimmed.length > USERNAME_MAX) return {valid:false, message:`Username cannot exceed ${USERNAME_MAX} characters`};
+  if(!/^[A-Za-z0-9_]+$/.test(trimmed)) return {valid:false, message:'Only letters, numbers, and underscores allowed'};
+  
+  // ❌ NEW: Block usernames that are ONLY numbers like "9999" or "12345"
+  const onlyNumbers = /^\d+$/;
+  if(onlyNumbers.test(trimmed)) {
+    return {valid:false, message:"Can't be only numbers — add letters too, example: ruwbi04"};
+  }
+  
   return {valid:true, message:'Username available'};
 }
+
+
 function passwordRuleChecklist(password){
   password = password || '';
   return [
