@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FlipStudy - Deck</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="appShell">
+  <nav class="topbar">
+    <a class="brand" href="dashboard.html">FlipStudy</a>
+    <div class="links" id="navLinks">
+      <a class="navlink" data-page="dashboard" href="dashboard.html">Dashboard</a>
+      <a class="navlink" data-page="decks" href="add.html">Decks</a>
+      <a class="navlink" data-page="study" href="study.html">Study</a>
+      <a class="navlink" data-page="profile" href="profile.html">Profile</a>
+      <a class="navlink" data-page="settings" href="settings.html">Settings</a>
+      <button class="theme-toggle-btn" id="themeToggleBtn" title="Toggle dark mode"><i class="fas fa-moon"></i></button>
+      <button class="sound-toggle-btn" id="soundToggleBtn" title="Toggle sound"><i class="fas fa-volume-up"></i></button>
+      <button class="navlink logout" id="logoutBtn">Logout</button>
+    </div>
+    <button class="hamburger" id="hamburgerBtn" aria-label="Open menu"><span></span><span></span><span></span></button>
+  </nav>
+
+  <main>
+    <a href="dashboard.html" class="link-btn" style="display:inline-block;margin-bottom:14px;"><i class="fas fa-arrow-left"></i> Back to Dashboard</a>
+
+    <div class="deck-header colored" id="deckHeader" style="position:relative;">
+      <div class="dh-name" id="dhName">Deck</div>
+      <div class="dh-meta" id="dhMeta"></div>
+      <button class="deck-menu-btn" id="deckMenuBtn" aria-label="Deck options"><i class="fas fa-ellipsis-v"></i></button>
+      <div class="deck-popover" id="deckPopover">
+        <button id="editDeckBtn"><i class="fas fa-pen"></i> Edit Deck</button>
+        <button id="dupDeckBtn"><i class="fas fa-copy"></i> Duplicate Deck</button>
+        <button id="shareDeckBtn"><i class="fas fa-share-nodes"></i> Share Deck</button>
+        <button class="danger" id="delDeckBtn"><i class="fas fa-trash"></i> Delete Deck</button>
+      </div>
+    </div>
+
+    <div class="deck-actions-row">
+      <a class="qa-btn blue" id="studyThisBtn" href="study.html"><i class="fas fa-play"></i> Study This Deck</a>
+      <button class="qa-btn green" id="addCardBtn"><i class="fas fa-plus"></i> Add Card</button>
+    </div>
+
+    <div class="search-bar search-wrap">
+      <i class="fas fa-magnifying-glass search-icon"></i>
+      <input id="cardSearch" placeholder="Search cards in this deck..." oninput="renderCards()">
+    </div>
+
+    <div id="cardList"></div>
+  </main>
+</div>
+
+<!-- Add / edit card modal -->
+<div class="modal-overlay" id="cardModalOverlay">
+  <div class="modal">
+    <h3 id="cardModalTitle"><i class="fas fa-plus"></i> Add Card</h3>
+    <div class="field"><input id="cardTerm" placeholder="Term"></div>
+    <div class="field"><textarea id="cardDef" rows="3" placeholder="Definition"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeCardModal()">Cancel</button>
+      <button class="btn-primary" id="cardFormBtn" onclick="handleSaveCard()"><i class="fas fa-plus"></i> Add Card</button>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+requireAuth();
+initNav('decks');
+
+const deckId = new URLSearchParams(location.search).get('id');
+let editingCardId = null;
+
+function requireDeck(){
+  const d = getDeck(deckId);
+  if(!d){ window.location.href = 'dashboard.html'; return null; }
+  return d;
+}
+
+function renderHeader(){
+  const d = requireDeck(); if(!d) return;
+  document.getElementById('deckHeader').style.setProperty('--dc', d.color);
+  document.getElementById('dhName').textContent = d.name;
+  const learned = d.cards.filter(c => c.learned).length;
+  const pct = d.cards.length ? Math.round((learned / d.cards.length) * 100) : 0;
+  document.getElementById('dhMeta').textContent =
+    `${d.cards.length} card${d.cards.length === 1 ? '' : 's'} · ${formatLastStudied(d.lastStudied)} · ${pct}% mastered`;
+  document.getElementById('studyThisBtn').href = 'study.html?deck=' + d.id;
+}
+
+function renderCards(){
+  const d = requireDeck(); if(!d) return;
+  const q = (document.getElementById('cardSearch').value || '').toLowerCase().trim();
+  const cards = q ? d.cards.filter(c => c.term.toLowerCase().includes(q) || c.def.toLowerCase().includes(q)) : d.cards;
+  const el = document.getElementById('cardList');
+
+  if(!d.cards.length){ el.innerHTML = '<div class="empty-note">No cards yet — tap "Add Card" to create your first one.</div>'; return; }
+  if(!cards.length){ el.innerHTML = `<div class="empty-note">No cards match "${esc(q)}".</div>`; return; }
+
+  el.innerHTML = cards.map(c => `
+    <div class="card-row">
+      <div class="crow-text">
+        <b style="font-size:13.5px">${esc(c.term)}</b>
+        <div class="crow-def">${esc(c.def)}</div>
+      </div>
+      <button class="card-menu-btn" onclick="toggleCardMenu(event,'${c.id}')" aria-label="Card options"><i class="fas fa-ellipsis-v"></i></button>
+      <div class="card-popover" id="cpop-${c.id}">
+        <button onclick="handleEditCard('${c.id}')"><i class="fas fa-pen"></i> Edit Card</button>
+        <button onclick="handleMoveCard('${c.id}')"><i class="fas fa-arrows-alt"></i> Move Card</button>
+        <button class="danger" onclick="handleDeleteCard('${c.id}')"><i class="fas fa-trash"></i> Delete Card</button>
+      </div>
+    </div>`).join('');
+}
+function toggleCardMenu(ev, id){
+  ev.stopPropagation();
+  document.querySelectorAll('.card-popover').forEach(p => { if(p.id !== 'cpop-' + id) p.classList.remove('open'); });
+  document.getElementById('cpop-' + id).classList.toggle('open');
+}
+document.addEventListener('click', () => document.querySelectorAll('.card-popover').forEach(p => p.classList.remove('open')));
+
+/* ---------------- Add / edit card modal ---------------- */
+function openCardModal(){
+  editingCardId = null;
+  document.getElementById('cardModalTitle').innerHTML = '<i class="fas fa-plus"></i> Add Card';
+  document.getElementById('cardFormBtn').innerHTML = '<i class="fas fa-plus"></i> Add Card';
+  document.getElementById('cardTerm').value = '';
+  document.getElementById('cardDef').value = '';
+  document.getElementById('cardModalOverlay').classList.add('open');
+  document.getElementById('cardTerm').focus();
+}
+function closeCardModal(){ document.getElementById('cardModalOverlay').classList.remove('open'); }
+document.getElementById('addCardBtn').onclick = openCardModal;
+
+function handleEditCard(cardId){
+  const d = requireDeck(); if(!d) return;
+  const c = d.cards.find(c => c.id === cardId); if(!c) return;
+  editingCardId = cardId;
+  document.getElementById('cardModalTitle').innerHTML = '<i class="fas fa-pen"></i> Edit Card';
+  document.getElementById('cardFormBtn').innerHTML = '<i class="fas fa-pen"></i> Update Card';
+  document.getElementById('cardTerm').value = c.term;
+  document.getElementById('cardDef').value = c.def;
+  document.getElementById('cardModalOverlay').classList.add('open');
+  document.getElementById('cardTerm').focus();
+}
+function handleSaveCard(){
+  const termEl = document.getElementById('cardTerm'), defEl = document.getElementById('cardDef');
+  const term = termEl.value, def = defEl.value;
+  if(!term.trim()){ shakeField(termEl); showToast('Please enter the term.', 'error'); return; }
+  if(!def.trim()){ shakeField(defEl); showToast('Please enter the definition.', 'error'); return; }
+
+  const btn = document.getElementById('cardFormBtn');
+  withSaving(btn, editingCardId ? 'Updating...' : 'Adding...', async () => {
+    if(editingCardId){ updateCard(deckId, editingCardId, term, def); showToast('Card updated!', 'success'); }
+    else { const created = await addCard(deckId, term, def); if(!created) return; showToast('Card added!', 'success'); }
+    closeCardModal();
+    renderHeader();
+    renderCards();
+  });
+}
+document.getElementById('cardTerm').addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); document.getElementById('cardDef').focus(); } });
+document.getElementById('cardDef').addEventListener('keydown', e => { if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); handleSaveCard(); } });
+
+function handleMoveCard(cardId){
+  openMoveCardModal(deckId, cardId, () => { renderHeader(); renderCards(); });
+}
+function handleDeleteCard(cardId){
+  confirmAction('Delete this card? This cannot be undone.', () => {
+    deleteCard(deckId, cardId);
+    showToast('Card deleted', '');
+    renderHeader();
+    renderCards();
+  }, 'Delete Card');
+}
+
+/* ---------------- Deck-level actions (from the header menu) ---------------- */
+document.getElementById('deckMenuBtn').onclick = e => { e.stopPropagation(); document.getElementById('deckPopover').classList.toggle('open'); };
+document.getElementById('editDeckBtn').onclick = () => openDeckFormModal(deckId, () => { renderHeader(); });
+document.getElementById('dupDeckBtn').onclick = async () => {
+  const copy = await duplicateDeck(deckId);
+  if(copy) showToast(`Duplicated as "${copy.name}" — find it on the Decks page`, 'success');
+};
+document.getElementById('shareDeckBtn').onclick = () => shareDeck(deckId);
+document.getElementById('delDeckBtn').onclick = () => {
+  const d = getDeck(deckId); if(!d) return;
+  confirmAction(`Delete "${d.name}" and all ${d.cards.length} card${d.cards.length === 1 ? '' : 's'}? This cannot be undone.`, () => {
+    deleteDeck(deckId);
+    showToast('Deck deleted', '');
+    window.location.href = 'dashboard.html';
+  }, 'Delete Deck');
+};
+
+refreshDecks().then(() => { if(requireDeck()){ renderHeader(); renderCards(); } });
+</script>
+</body>
+</html>
