@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FlipStudy - Create Account</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="authScreen">
+  <button class="theme-toggle-btn corner" id="themeToggleBtn" title="Toggle dark mode" aria-label="Toggle dark mode"><i class="fas fa-moon"></i></button>
+  <div class="auth-card">
+    <div class="auth-brand"><div class="logo">FlipStudy</div><div class="tag">Your Smart Flashcard App</div></div>
+    <div id="authError" class="auth-error" role="alert"></div>
+    <div id="authSuccess" class="auth-success" role="status"></div>
+    <h2>Create your account</h2>
+    <form id="registerForm" novalidate>
+      <div class="field">
+        <label for="regUser">Username</label>
+        <input id="regUser" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="4-20 letters, numbers, underscores" maxlength="20">
+        <div class="field-hint" id="userHint"></div>
+      </div>
+      <div class="field">
+        <label for="regEmail">Email</label>
+        <input id="regEmail" type="email" autocomplete="email" autocapitalize="none" placeholder="you@example.com">
+        <div class="field-hint" id="emailHint"></div>
+      </div>
+      <div class="field">
+        <label for="regPass">Password</label>
+        <input id="regPass" type="password" autocomplete="new-password" placeholder="Choose a password" maxlength="32">
+        <div class="strength-meter"><div class="strength-meter-fill" id="strengthFill"></div></div>
+        <div class="strength-label" id="strengthLabel"></div>
+        <ul class="pw-checklist" id="pwChecklist"></ul>
+      </div>
+      <button class="btn-primary" id="registerBtn" type="submit" disabled>Create Account</button>
+    </form>
+    <div class="switch-line">Already have an account? <a href="index.html">Log in</a></div>
+  </div>
+</div>
+
+<script>window.FLIPSTUDY_API_BASE = 'https://flipstudy.onrender.com/api';</script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+redirectIfLoggedIn();
+
+const userEl = document.getElementById('regUser');
+const emailEl = document.getElementById('regEmail');
+const passEl = document.getElementById('regPass');
+const btn = document.getElementById('registerBtn');
+
+function showErr(msg){ const e = document.getElementById('authError'); e.textContent = msg; e.style.display = 'block'; }
+function clearErr(){ document.getElementById('authError').style.display = 'none'; }
+function showSuccessMsg(msg){ const e = document.getElementById('authSuccess'); e.textContent = msg; e.style.display = 'block'; }
+
+/* ---------------- Live validation ---------------- */
+let userValid = false, emailValid = false, passValid = false;
+
+function updateSubmit(){ btn.disabled = !(userValid && emailValid && passValid); }
+
+function renderUserHint(){
+  const hint = document.getElementById('userHint');
+  const v = userEl.value.trim();
+  if(!v){ hint.textContent = ''; hint.className = 'field-hint'; userValid = false; return updateSubmit(); }
+  const r = validateUsername(v);
+  userValid = r.valid;
+  hint.textContent = r.valid ? 'Username looks good' : r.message;
+  hint.className = 'field-hint ' + (r.valid ? 'valid' : 'invalid');
+  updateSubmit();
+}
+
+function renderEmailHint(){
+  const hint = document.getElementById('emailHint');
+  const v = emailEl.value.trim();
+  if(!v){ hint.textContent = ''; hint.className = 'field-hint'; emailValid = false; return updateSubmit(); }
+  const r = validateEmail(v);
+  emailValid = r.valid;
+  hint.textContent = r.valid ? 'Email looks good' : r.message;
+  hint.className = 'field-hint ' + (r.valid ? 'valid' : 'invalid');
+  updateSubmit();
+}
+
+function renderPasswordFeedback(){
+  const pw = passEl.value;
+  document.getElementById('pwChecklist').innerHTML = passwordRuleChecklist(pw).map(r =>
+    `<li class="${r.met ? 'met' : ''}"><i class="fas ${r.met ? 'fa-check' : 'fa-circle'}"></i>${r.label}</li>`).join('');
+  const s = passwordStrength(pw);
+  const fill = document.getElementById('strengthFill');
+  const label = document.getElementById('strengthLabel');
+  fill.style.width = s.pct + '%';
+  fill.style.background = ['var(--red)','var(--red)','var(--amber-500)','var(--blue-500)','var(--green)'][s.level || 0];
+  label.textContent = pw ? s.label : '';
+  label.className = 'strength-label w' + (s.level || 0);
+  passValid = validatePassword(pw).valid;
+  updateSubmit();
+}
+
+userEl.addEventListener('input', () => { clearErr(); userEl.classList.remove('input-error'); renderUserHint(); });
+emailEl.addEventListener('input', () => { clearErr(); emailEl.classList.remove('input-error'); renderEmailHint(); });
+passEl.addEventListener('input', () => { clearErr(); passEl.classList.remove('input-error'); renderPasswordFeedback(); });
+renderPasswordFeedback();
+userEl.focus();
+
+/* ---------------- Submit ---------------- */
+document.getElementById('registerForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  clearErr();
+  if(!(userValid && emailValid && passValid)) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Creating account...';
+
+  const res = await registerUser(userEl.value.trim(), emailEl.value.trim(), passEl.value);
+  if(!res.ok){
+    btn.disabled = false;
+    btn.textContent = 'Create Account';
+    showErr(res.error);
+    return;
+  }
+  showSuccessMsg('Account created. Redirecting to login...');
+  btn.textContent = 'Account created';
+  setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+});
+</script>
+</body>
+</html>

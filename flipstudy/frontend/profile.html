@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FlipStudy - Profile</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="appShell">
+  <nav class="topbar">
+    <a class="brand" href="dashboard.html">FlipStudy</a>
+    <div class="links" id="navLinks">
+      <a class="navlink" data-page="dashboard" href="dashboard.html">Dashboard</a>
+      <a class="navlink" data-page="decks" href="add.html">Decks</a>
+      <a class="navlink" data-page="study" href="study.html">Study</a>
+      <a class="navlink" data-page="profile" href="profile.html">Profile</a>
+      <a class="navlink" data-page="settings" href="settings.html">Settings</a>
+      <button class="theme-toggle-btn" id="themeToggleBtn" title="Toggle dark mode"><i class="fas fa-moon"></i></button>
+      <button class="sound-toggle-btn" id="soundToggleBtn" title="Toggle sound"><i class="fas fa-volume-up"></i></button>
+      <button class="navlink logout" id="logoutBtn">Logout</button>
+    </div>
+    <button class="hamburger" id="hamburgerBtn" aria-label="Open menu"><span></span><span></span><span></span></button>
+  </nav>
+
+  <main>
+    <div class="profile-hero">
+      <div class="profile-avatar"><i class="fas fa-user-circle"></i></div>
+      <div class="profile-name" id="profileNameDisplay" title="Click to edit"><span id="profileNameText">—</span> <i class="fas fa-user-edit"></i></div>
+      <div class="profile-tagline" id="profileTaglineDisplay" title="Click to edit">—</div>
+      <button class="accent-badge" id="accentBadge" title="Change accent color"><span class="dot"></span> <span id="accentBadgeText">Blue</span></button>
+      <div class="profile-joined" id="profileJoined">Member since —</div>
+    </div>
+
+    <div class="stat-icon-grid">
+      <div class="stat-icon-card"><i class="fas fa-layer-group"></i><div class="num" id="statDecks">0</div><div class="label">Decks Created</div></div>
+      <div class="stat-icon-card"><i class="fas fa-clone"></i><div class="num" id="statMastered">0</div><div class="label">Cards Mastered</div></div>
+      <div class="stat-icon-card streak"><i class="fas fa-fire"></i><div class="num" id="statStreak">0</div><div class="label">Day Streak</div></div>
+      <div class="stat-icon-card"><i class="fas fa-clock"></i><div class="num" id="statTime">0m</div><div class="label">Study Time</div></div>
+      <div class="stat-icon-card"><i class="fas fa-calendar-check"></i><div class="num" id="statActive">—</div><div class="label">Last Active</div></div>
+    </div>
+
+    <div class="settings-group">
+      <h3><i class="fas fa-chart-simple"></i> Overall Mastery</h3>
+      <div class="progress-bar" style="margin-top:10px;"><div class="progress-bar-fill" id="masteryFill" style="width:0%"></div></div>
+      <p class="progress-caption" id="masteryCaption" style="text-align:left;">0 of 0 cards known</p>
+    </div>
+
+    <div class="section-head"><h3>Quick Actions</h3></div>
+    <div class="quick-action-list">
+      <button class="qa-row" id="editProfileBtn"><i class="fas fa-user-edit"></i> Edit Profile</button>
+      <button class="qa-row" id="viewActivityBtn"><i class="fas fa-clock-rotate-left"></i> View My Activity</button>
+      <button class="qa-row" id="exportBtn"><i class="fas fa-file-download"></i> Export All Data</button>
+      <button class="qa-row danger" id="profileLogoutBtn"><i class="fas fa-sign-out-alt"></i> Logout</button>
+    </div>
+
+    <div id="activityPanel" class="hidden" style="margin-top:18px;">
+      <div class="section-head"><h3>Recent Study Sessions</h3></div>
+      <div class="activity-list" id="activityList"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Edit profile modal -->
+<div class="modal-overlay" id="editProfileOverlay">
+  <div class="modal">
+    <h3><i class="fas fa-user-edit"></i> Edit Profile</h3>
+    <div class="field"><label>Display Name</label><input id="editNameInput" placeholder="Your name"></div>
+    <div class="field"><label>Tagline</label><input id="editTaglineInput" placeholder="A short status, e.g. \"Learning Spanish\""></div>
+    <label style="font-size:12.5px;font-weight:600;color:var(--muted);">Accent Color</label>
+    <div class="accent-grid" id="accentGrid"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeEditProfile()">Cancel</button>
+      <button class="btn-primary" id="saveProfileBtn" onclick="saveProfile()"><i class="fas fa-user-edit"></i> Save</button>
+    </div>
+  </div>
+</div>
+
+<script>window.FLIPSTUDY_API_BASE = 'https://flipstudy.onrender.com/api';</script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+requireAuth();
+initNav('profile');
+document.getElementById('profileLogoutBtn').onclick = () => confirmAction('Log out of FlipStudy?', logoutUser, 'Log Out');
+
+function render(){
+  document.getElementById('profileNameText').textContent = profileName();
+  document.getElementById('profileTaglineDisplay').textContent = SETTINGS.tagline || 'Add a short status about yourself.';
+  const joined = joinedDate();
+  document.getElementById('profileJoined').textContent = 'Member since ' + (joined ? new Date(joined).toLocaleDateString(undefined, {year:'numeric', month:'long', day:'numeric'}) : '—');
+
+  const a = ACCENTS[SETTINGS.accent] || ACCENTS.blue;
+  document.getElementById('accentBadgeText').textContent = a.name;
+  document.getElementById('accentBadge').querySelector('.dot').style.background = a[500];
+
+  const decks = userDecks();
+  const stats = progressStats();
+  document.getElementById('statDecks').textContent = decks.length;
+  document.getElementById('statMastered').textContent = stats.learned;
+  document.getElementById('statStreak').textContent = SETTINGS.streak.count || 0;
+  document.getElementById('statTime').textContent = formatDuration(SETTINGS.studySeconds);
+  document.getElementById('statActive').textContent = SETTINGS.lastActive ? formatLastStudied(SETTINGS.lastActive).replace('Studied ', '') : 'Just now';
+
+  const pct = stats.total ? Math.round((stats.learned / stats.total) * 100) : 0;
+  document.getElementById('masteryFill').style.width = pct + '%';
+  document.getElementById('masteryCaption').textContent = `${stats.learned} of ${stats.total} cards known (${pct}%)`;
+
+  renderActivity();
+}
+function renderActivity(){
+  const list = document.getElementById('activityList');
+  const sessions = SETTINGS.recentSessions || [];
+  if(!sessions.length){ list.innerHTML = '<div class="empty-note">No study sessions yet — start studying to see your activity here.</div>'; return; }
+  list.innerHTML = sessions.map(s => `
+    <div class="activity-row">
+      <span>${esc(s.deckName)} · ${esc(s.mode)}</span>
+      <span class="a-when">${new Date(s.date).toLocaleDateString()}</span>
+    </div>`).join('');
+}
+document.getElementById('viewActivityBtn').onclick = () => document.getElementById('activityPanel').classList.toggle('hidden');
+document.getElementById('exportBtn').onclick = exportAllData;
+document.getElementById('profileNameDisplay').onclick = openEditProfile;
+document.getElementById('profileTaglineDisplay').onclick = openEditProfile;
+document.getElementById('accentBadge').onclick = openEditProfile;
+document.getElementById('editProfileBtn').onclick = openEditProfile;
+
+function buildAccentGrid(){
+  document.getElementById('accentGrid').innerHTML = Object.keys(ACCENTS).map(key => {
+    const a = ACCENTS[key];
+    return `<div class="accent-swatch ${key === SETTINGS.accent ? 'selected' : ''}" style="background:${a[500]}" data-key="${key}" title="${a.name}" onclick="document.querySelectorAll('.accent-swatch').forEach(s=>s.classList.remove('selected')); this.classList.add('selected');"></div>`;
+  }).join('');
+}
+function openEditProfile(){
+  document.getElementById('editNameInput').value = profileName();
+  document.getElementById('editTaglineInput').value = SETTINGS.tagline || '';
+  buildAccentGrid();
+  document.getElementById('editProfileOverlay').classList.add('open');
+  document.getElementById('editNameInput').focus();
+}
+function closeEditProfile(){ document.getElementById('editProfileOverlay').classList.remove('open'); }
+function saveProfile(){
+  const nameInput = document.getElementById('editNameInput');
+  const name = nameInput.value.trim();
+  if(!name){ shakeField(nameInput); showToast('Please enter a display name.', 'error'); return; }
+  const btn = document.getElementById('saveProfileBtn');
+  withSaving(btn, 'Saving...', () => {
+    setProfileName(name);
+    setTagline(document.getElementById('editTaglineInput').value);
+    const sel = document.querySelector('.accent-swatch.selected');
+    if(sel) setAccent(sel.dataset.key);
+    showToast('Profile updated!', 'success');
+    closeEditProfile();
+    render();
+  });
+}
+document.getElementById('editNameInput').addEventListener('keydown', e => { if(e.key === 'Enter') saveProfile(); });
+
+refreshDecks().then(render);
+</script>
+</body>
+</html>

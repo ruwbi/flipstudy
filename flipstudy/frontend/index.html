@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FlipStudy - Login</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="authScreen">
+  <button class="theme-toggle-btn corner" id="themeToggleBtn" title="Toggle dark mode" aria-label="Toggle dark mode"><i class="fas fa-moon"></i></button>
+  <div class="auth-card">
+    <div class="auth-brand"><div class="logo">FlipStudy</div><div class="tag">Your Smart Flashcard App</div></div>
+    <div id="authError" class="auth-error" role="alert"></div>
+    <h2>Welcome back</h2>
+    <form id="loginForm" novalidate>
+      <div class="field"><label for="loginUser">Username</label><input id="loginUser" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Enter your username"></div>
+      <div class="field"><label for="loginPass">Password</label><input id="loginPass" type="password" autocomplete="current-password" placeholder="Enter your password"></div>
+      <button class="btn-primary" id="loginBtn" type="submit">Login</button>
+    </form>
+    <div class="switch-line">Don't have an account? <a href="register.html">Create New Account</a></div>
+  </div>
+</div>
+
+<script>window.FLIPSTUDY_API_BASE = 'https://flipstudy.onrender.com/api';</script>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+redirectIfLoggedIn();
+
+const userEl = document.getElementById('loginUser');
+const passEl = document.getElementById('loginPass');
+const btn = document.getElementById('loginBtn');
+
+function showErr(msg){ const e = document.getElementById('authError'); e.textContent = msg; e.style.display = 'block'; }
+function clearErr(){ document.getElementById('authError').style.display = 'none'; }
+
+[userEl, passEl].forEach(el => el.addEventListener('input', () => { clearErr(); el.classList.remove('input-error'); }));
+userEl.focus();
+
+document.getElementById('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  clearErr();
+
+  if(!userEl.value.trim()){ showErr('Please enter your username'); shakeField(userEl); userEl.focus(); return; }
+  if(!passEl.value){ showErr('Please enter your password'); shakeField(passEl); passEl.focus(); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Logging in...';
+
+  const res = await loginUser(userEl.value.trim(), passEl.value);
+  if(!res.ok){
+    btn.disabled = false;
+    btn.textContent = 'Login';
+    showErr(res.error);
+    shakeField(userEl); shakeField(passEl);
+    return;
+  }
+  window.location.href = 'dashboard.html';
+});
+</script>
+</body>
+</html>

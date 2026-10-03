@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FlipStudy - Settings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="appShell">
+  <nav class="topbar">
+    <a class="brand" href="dashboard.html">FlipStudy</a>
+    <div class="links" id="navLinks">
+      <a class="navlink" data-page="dashboard" href="dashboard.html">Dashboard</a>
+      <a class="navlink" data-page="decks" href="add.html">Decks</a>
+      <a class="navlink" data-page="study" href="study.html">Study</a>
+      <a class="navlink" data-page="profile" href="profile.html">Profile</a>
+      <a class="navlink" data-page="settings" href="settings.html">Settings</a>
+      <button class="theme-toggle-btn" id="themeToggleBtn" title="Toggle dark mode"><i class="fas fa-moon"></i></button>
+      <button class="navlink logout" id="logoutBtn">Logout</button>
+    </div>
+    <button class="hamburger" id="hamburgerBtn" aria-label="Open menu"><span></span><span></span><span></span></button>
+  </nav>
+
+  <main style="max-width:560px;">
+    <h1 class="page-title"><i class="fas fa-cog"></i> Settings</h1>
+    <p class="subtle">The essentials — study sound, animation speed, and your account.</p>
+
+    <div class="settings-group">
+      <h3><i class="fas fa-graduation-cap"></i> Study Preferences</h3>
+      <div class="setting-row">
+        <div><div class="s-label">Sound Effects</div><div class="s-hint">Flip clicks and correct/wrong chimes</div></div>
+        <label class="switch"><input type="checkbox" id="soundSwitch"><span class="slider-track"></span></label>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-label">Animation Speed</div><div class="s-hint">How fast cards flip and screens transition</div></div>
+        <div class="segmented" id="speedSeg">
+          <button data-v="fast">Fast</button>
+          <button data-v="normal">Normal</button>
+          <button data-v="slow">Slow</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3><i class="fas fa-user-shield"></i> Account</h3>
+      <form id="pwForm" novalidate>
+        <div class="field"><label>Current Password</label><input id="curPass" type="password" autocomplete="current-password" placeholder="Enter current password"></div>
+        <div class="field"><label>New Password</label><input id="newPass" type="password" autocomplete="new-password" placeholder="Choose a new password" maxlength="32">
+          <div class="strength-meter"><div class="strength-meter-fill" id="strengthFill"></div></div>
+          <div class="strength-label" id="strengthLabel"></div>
+          <ul class="pw-checklist" id="pwChecklist"></ul>
+        </div>
+        <div class="field"><label>Confirm New Password</label><input id="confirmNewPass" type="password" autocomplete="new-password" placeholder="Re-enter new password" maxlength="32">
+          <div class="field-hint" id="confirmHint"></div>
+        </div>
+        <div id="pwFormMsg" class="field-hint" style="margin-bottom:10px;"></div>
+        <button class="btn-primary" id="pwSaveBtn" type="submit" style="width:auto; padding:10px 20px;" disabled>Change Password</button>
+      </form>
+      <div class="setting-row" style="margin-top:18px; border-top:1px solid var(--line); padding-top:16px;">
+        <div><div class="s-label">Logged in as</div><div class="s-hint" id="whoAmI"></div></div>
+        <button class="btn-secondary" style="width:auto; padding:9px 16px; flex:none;" id="logoutBtn2">Logout</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+
+<script>window.FLIPSTUDY_API_BASE = 'https://flipstudy.onrender.com/api';</script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+requireAuth();
+initNav('settings');
+document.getElementById('whoAmI').textContent = currentUser();
+document.getElementById('logoutBtn2').onclick = logoutUser;
+
+function paintSegmented(id, current){
+  document.querySelectorAll('#' + id + ' button').forEach(b => b.classList.toggle('active', b.dataset.v === current));
+}
+document.getElementById('soundSwitch').checked = soundEnabled();
+paintSegmented('speedSeg', SETTINGS.flipDuration);
+
+document.getElementById('soundSwitch').onchange = e => { SETTINGS.sound = e.target.checked; saveSettings(); applySoundIcon(); };
+document.getElementById('speedSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if(!b) return;
+  SETTINGS.flipDuration = b.dataset.v; saveSettings(); paintSegmented('speedSeg', b.dataset.v);
+});
+
+/* ---------------- Change password — same live validation pattern as registration ---------------- */
+const curEl = document.getElementById('curPass');
+const newEl = document.getElementById('newPass');
+const confirmEl = document.getElementById('confirmNewPass');
+const pwBtn = document.getElementById('pwSaveBtn');
+let newValid = false, confirmValid = false;
+
+function renderNewPwFeedback(){
+  const pw = newEl.value;
+  document.getElementById('pwChecklist').innerHTML = passwordRuleChecklist(pw).map(r =>
+    `<li class="${r.met ? 'met' : ''}"><i class="fas ${r.met ? 'fa-check' : 'fa-circle'}"></i>${r.label}</li>`).join('');
+  const s = passwordStrength(pw);
+  document.getElementById('strengthFill').style.width = s.pct + '%';
+  document.getElementById('strengthFill').style.background = ['var(--red)','var(--red)','var(--amber-500)','var(--blue-500)','var(--green)'][s.level || 0];
+  const label = document.getElementById('strengthLabel');
+  label.textContent = pw ? s.label : '';
+  label.className = 'strength-label w' + (s.level || 0);
+  newValid = validatePassword(pw).valid;
+  renderConfirmHint();
+  updatePwBtn();
+}
+function renderConfirmHint(){
+  const hint = document.getElementById('confirmHint');
+  if(!confirmEl.value){ hint.textContent = ''; hint.className = 'field-hint'; confirmValid = false; return updatePwBtn(); }
+  confirmValid = confirmEl.value === newEl.value;
+  hint.textContent = confirmValid ? 'Passwords match' : 'Passwords do not match';
+  hint.className = 'field-hint ' + (confirmValid ? 'valid' : 'invalid');
+  updatePwBtn();
+}
+function updatePwBtn(){ pwBtn.disabled = !(curEl.value && newValid && confirmValid); }
+
+curEl.addEventListener('input', () => { document.getElementById('pwFormMsg').textContent = ''; updatePwBtn(); });
+newEl.addEventListener('input', () => { document.getElementById('pwFormMsg').textContent = ''; renderNewPwFeedback(); });
+confirmEl.addEventListener('input', () => { document.getElementById('pwFormMsg').textContent = ''; renderConfirmHint(); });
+renderNewPwFeedback();
+
+document.getElementById('pwForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = document.getElementById('pwFormMsg');
+  pwBtn.disabled = true;
+  const original = pwBtn.innerHTML;
+  pwBtn.innerHTML = '<span class="spinner"></span> Saving...';
+  const res = await changePassword(curEl.value, newEl.value);
+  pwBtn.innerHTML = original;
+  if(!res.ok){ pwBtn.disabled = false; msg.textContent = res.error; msg.className = 'field-hint invalid'; shakeField(curEl); return; }
+  msg.textContent = res.message || 'Password changed successfully.';
+  msg.className = 'field-hint valid';
+  document.getElementById('pwForm').reset();
+  newValid = false; confirmValid = false; renderNewPwFeedback();
+  showToast('Password updated.', '');
+});
+</script>
+</body>
+</html>

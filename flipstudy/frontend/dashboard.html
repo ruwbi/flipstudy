@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FlipStudy - Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="appShell">
+  <nav class="topbar">
+    <a class="brand" href="dashboard.html">FlipStudy</a>
+    <div class="links" id="navLinks">
+      <a class="navlink" data-page="dashboard" href="dashboard.html">Dashboard</a>
+      <a class="navlink" data-page="decks" href="add.html">Decks</a>
+      <a class="navlink" data-page="study" href="study.html">Study</a>
+      <a class="navlink" data-page="profile" href="profile.html">Profile</a>
+      <a class="navlink" data-page="settings" href="settings.html">Settings</a>
+      <button class="theme-toggle-btn" id="themeToggleBtn" title="Toggle dark mode"><i class="fas fa-moon"></i></button>
+      <button class="sound-toggle-btn" id="soundToggleBtn" title="Toggle sound"><i class="fas fa-volume-up"></i></button>
+      <button class="navlink logout" id="logoutBtn">Logout</button>
+    </div>
+    <button class="hamburger" id="hamburgerBtn" aria-label="Open menu"><span></span><span></span><span></span></button>
+  </nav>
+
+  <main>
+    <h1 class="page-title" id="pageTitle">Welcome back!</h1>
+    <p class="subtle" id="todayDate"></p>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="num" id="statDecks">0</div><div class="label">Total Decks</div></div>
+      <div class="stat-card"><div class="num" id="statCards">0</div><div class="label">Total Cards</div></div>
+      <div class="stat-card"><div class="num" id="statToStudy">0</div><div class="label">To Study</div></div>
+      <div class="stat-card"><div class="num" id="statDone">0</div><div class="label">Completed</div></div>
+    </div>
+    <div id="overallProgressWrap" style="margin-bottom:22px;"></div>
+    <div class="quick-actions">
+      <a class="qa-btn blue" href="study.html"><i class="fas fa-play"></i> Start Studying</a>
+      <button class="qa-btn green" id="addDeckBtn"><i class="fas fa-plus"></i> Add New Deck</button>
+    </div>
+    <div class="section-head"><h3>My Decks</h3></div>
+    <div class="deck-grid" id="dashDeckGrid"></div>
+  </main>
+</div>
+
+
+<script>window.FLIPSTUDY_API_BASE = 'https://flipstudy.onrender.com/api';</script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+requireAuth();
+initNav('dashboard');
+document.getElementById('pageTitle').textContent = 'Welcome back, ' + profileName() + '!';
+document.getElementById('todayDate').textContent = new Date().toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+document.getElementById('addDeckBtn').onclick = () => openDeckFormModal(null, render);
+
+function render(){
+  const decks = userDecks();
+  const stats = progressStats();
+  document.getElementById('statDecks').textContent = decks.length;
+  document.getElementById('statCards').textContent = stats.total;
+  document.getElementById('statToStudy').textContent = stats.toStudy;
+  document.getElementById('statDone').textContent = stats.learned;
+  const pct = stats.total ? Math.round((stats.learned / stats.total) * 100) : 0;
+  document.getElementById('overallProgressWrap').innerHTML = stats.total
+    ? `<div class="progress-bar" title="${stats.learned} of ${stats.total} mastered"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+       <div class="progress-caption">Overall mastery: ${pct}%</div>`
+    : '';
+
+  const grid = document.getElementById('dashDeckGrid');
+  if(!decks.length){
+    grid.innerHTML = '<div class="empty-note">No decks yet — tap "Add New Deck" to get started.</div>';
+    return;
+  }
+  grid.innerHTML = decks.map(d => `
+    <a class="deck-card colored" style="--dc:${d.color}" href="deck.html?id=${d.id}">
+      <div class="dname">${esc(d.name)}</div>
+      <div class="dcount">${d.cards.length} card${d.cards.length === 1 ? '' : 's'}</div>
+      <div class="dlast">${formatLastStudied(d.lastStudied)}</div>
+    </a>`).join('');
+}
+refreshDecks().then(render);
+</script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FlipStudy - Decks</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="appShell">
+  <nav class="topbar">
+    <a class="brand" href="dashboard.html">FlipStudy</a>
+    <div class="links" id="navLinks">
+      <a class="navlink" data-page="dashboard" href="dashboard.html">Dashboard</a>
+      <a class="navlink" data-page="decks" href="add.html">Decks</a>
+      <a class="navlink" data-page="study" href="study.html">Study</a>
+      <a class="navlink" data-page="profile" href="profile.html">Profile</a>
+      <a class="navlink" data-page="settings" href="settings.html">Settings</a>
+      <button class="theme-toggle-btn" id="themeToggleBtn" title="Toggle dark mode"><i class="fas fa-moon"></i></button>
+      <button class="sound-toggle-btn" id="soundToggleBtn" title="Toggle sound"><i class="fas fa-volume-up"></i></button>
+      <button class="navlink logout" id="logoutBtn">Logout</button>
+    </div>
+    <button class="hamburger" id="hamburgerBtn" aria-label="Open menu"><span></span><span></span><span></span></button>
+  </nav>
+
+  <main>
+    <h1 class="page-title">All Decks</h1>
+    <p class="subtle">Create, organize, and manage your flashcard decks. Tap a deck to see and edit its cards.</p>
+    <div class="search-bar search-wrap">
+      <i class="fas fa-magnifying-glass search-icon"></i>
+      <input id="deckSearch" placeholder="Search decks by name..." oninput="render()">
+    </div>
+    <div class="deck-grid" id="decksGrid"></div>
+    <button class="fab" id="fabAddDeck" aria-label="Create new deck"><i class="fas fa-plus"></i></button>
+  </main>
+</div>
+
+<script>window.FLIPSTUDY_API_BASE = 'https://flipstudy.onrender.com/api';</script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+requireAuth();
+initNav('decks');
+
+document.getElementById('fabAddDeck').onclick = () => openDeckFormModal(null, render);
+
+function render(){
+  const q = (document.getElementById('deckSearch').value || '').toLowerCase().trim();
+  const all = userDecks();
+  const decks = q ? all.filter(d => d.name.toLowerCase().includes(q)) : all;
+  const grid = document.getElementById('decksGrid');
+
+  if(!all.length){ grid.innerHTML = '<div class="empty-note">No decks yet — tap the + button to create your first one.</div>'; return; }
+  if(!decks.length){ grid.innerHTML = `<div class="empty-note">No decks match "${esc(q)}".</div>`; return; }
+
+  grid.innerHTML = decks.map(d => `
+    <div class="deck-card colored" style="--dc:${d.color}">
+      <a href="deck.html?id=${d.id}" style="position:absolute; inset:0;" aria-label="Open ${esc(d.name)}"></a>
+      <div class="dname">${esc(d.name)}</div>
+      <div class="dcount">${d.cards.length} card${d.cards.length === 1 ? '' : 's'}</div>
+      <div class="dlast">${formatLastStudied(d.lastStudied)}</div>
+      <button class="deck-menu-btn" onclick="toggleMenu(event,'${d.id}')" aria-label="Deck options"><i class="fas fa-ellipsis-v"></i></button>
+      <div class="deck-popover" id="pop-${d.id}">
+        <button onclick="openDeckFormModal('${d.id}', render)"><i class="fas fa-pen"></i> Edit Deck</button>
+        <button onclick="window.location.href='deck.html?id=${d.id}'"><i class="fas fa-list"></i> View Cards</button>
+        <button onclick="handleDuplicate('${d.id}')"><i class="fas fa-copy"></i> Duplicate Deck</button>
+        <button onclick="shareDeck('${d.id}')"><i class="fas fa-share-nodes"></i> Share Deck</button>
+        <button class="danger" onclick="handleDelete('${d.id}')"><i class="fas fa-trash"></i> Delete Deck</button>
+      </div>
+    </div>`).join('');
+}
+function toggleMenu(ev, id){
+  ev.preventDefault(); ev.stopPropagation();
+  document.querySelectorAll('.deck-popover').forEach(p => { if(p.id !== 'pop-' + id) p.classList.remove('open'); });
+  document.getElementById('pop-' + id).classList.toggle('open');
+}
+document.addEventListener('click', () => document.querySelectorAll('.deck-popover').forEach(p => p.classList.remove('open')));
+
+async function handleDuplicate(id){
+  const copy = await duplicateDeck(id);
+  if(copy) showToast(`Duplicated as "${copy.name}"`, 'success');
+  render();
+}
+function handleDelete(id){
+  const d = getDeck(id); if(!d) return;
+  confirmAction(`Delete "${d.name}" and all ${d.cards.length} card${d.cards.length === 1 ? '' : 's'}? This cannot be undone.`, () => {
+    deleteDeck(id);
+    showToast('Deck deleted', '');
+    render();
+  }, 'Delete Deck');
+}
+
+refreshDecks().then(() => {
+  render();
+
+  /* Deep link from the dashboard: add.html?open=cards[&deck=ID] goes straight to that deck's card view. */
+  const params = new URLSearchParams(location.search);
+  if(params.get('open') !== 'cards') return;
+  const decks = userDecks();
+  if(!decks.length){ openDeckFormModal(null, render); showToast('Create your first deck to add cards.', ''); return; }
+  const requested = params.get('deck');
+  const target = (requested && getDeck(requested)) ? requested : decks[0].id;
+  window.location.href = 'deck.html?id=' + target;
+});
+</script>
+</body>
+</html>

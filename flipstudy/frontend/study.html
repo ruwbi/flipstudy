@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FlipStudy - Study</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="appShell">
+  <nav class="topbar">
+    <a class="brand" href="dashboard.html">FlipStudy</a>
+    <div class="links" id="navLinks">
+      <a class="navlink" data-page="dashboard" href="dashboard.html">Dashboard</a>
+      <a class="navlink" data-page="decks" href="add.html">Decks</a>
+      <a class="navlink" data-page="study" href="study.html">Study</a>
+      <a class="navlink" data-page="profile" href="profile.html">Profile</a>
+      <a class="navlink" data-page="settings" href="settings.html">Settings</a>
+      <button class="theme-toggle-btn" id="themeToggleBtn" title="Toggle dark mode"><i class="fas fa-moon"></i></button>
+      <button class="sound-toggle-btn" id="soundToggleBtn" title="Toggle sound"><i class="fas fa-volume-up"></i></button>
+      <button class="navlink logout" id="logoutBtn">Logout</button>
+    </div>
+    <button class="hamburger" id="hamburgerBtn" aria-label="Open menu"><span></span><span></span><span></span></button>
+  </nav>
+
+  <main>
+    <a href="#" class="link-btn" id="wizardBackBtn" style="display:inline-block;margin-bottom:10px;"><i class="fas fa-arrow-left"></i> Back</a>
+    <div id="wizardArea"></div>
+  </main>
+</div>
+
+<script>window.FLIPSTUDY_API_BASE = 'https://flipstudy.onrender.com/api';</script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+requireAuth();
+initNav('study');
+
+const MODES = [
+  {key:'memorize', label:'Memorize',        desc:'Flip to reveal',   icon:'fa-sync-alt'},
+  {key:'choice',   label:'Multiple Choice', desc:'Pick the answer',  icon:'fa-list-check'},
+  {key:'match',    label:'Match',           desc:'Pair terms up',    icon:'fa-handshake'},
+  {key:'write',    label:'Write',           desc:'Type the answer',  icon:'fa-pen-alt'},
+  {key:'tutor',    label:'AI Tutor',        desc:'Guided practice',  icon:'fa-robot'},
+];
+const TUTOR_TIPS = [
+  'Try saying the definition out loud in your own words before checking.',
+  'Connect this term to something you already know — analogies stick.',
+  'Break the definition into two or three smaller chunks and quiz yourself on each.',
+  'Picture a real example of this concept — visuals are easier to recall.',
+  "If you're stuck, look at the first word of the definition and guess forward from there.",
+];
+
+let wizardStep = 1;
+let studyDeckId = null, studyMode = null, studyIdx = 0, matchSel = null, matchSolved = new Set();
+let studyOrder = null;
+let session = null; // {startedAt, reviewed, known}
+
+// Arriving from a deck's "Study This Deck" button? Remember which deck, but still
+// ask for a mode first (mode selection must stay neutral / deck-agnostic on entry).
+const _requestedDeck = new URLSearchParams(location.search).get('deck');
+let _lockedDeckId = null; // resolved once decks are loaded — see boot sequence at the bottom
+
+function goBack(){
+  if(wizardStep === 3){ wizardStep = _lockedDeckId ? 1 : 2; studyMode = null; studyDeckId = _lockedDeckId; }
+  else if(wizardStep === 2){ wizardStep = 1; studyMode = null; }
+  else { window.location.href = 'dashboard.html'; return; }
+  renderWizard();
+}
+document.getElementById('wizardBackBtn').onclick = e => { e.preventDefault(); goBack(); };
+
+function renderWizard(){
+  document.getElementById('wizardBackBtn').innerHTML = wizardStep === 1
+    ? '<i class="fas fa-arrow-left"></i> Back to Dashboard'
+    : '<i class="fas fa-arrow-left"></i> Back';
+  if(wizardStep === 1) return renderModeStep();
+  if(wizardStep === 2) return renderDeckStep();
+  return enterStep3();
+}
+
+/* ============ STEP 1 — choose a study mode (neutral — no deck picked yet) ============ */
+function renderModeStep(){
+  document.getElementById('wizardArea').innerHTML = `
+    <h1 class="page-title"><i class="fas fa-brain"></i> Start Studying</h1>
+    <p class="subtle">Choose how you'd like to study.</p>
+    <div class="mode-grid-big">${MODES.map(m => `
+      <button class="mode-card-big" onclick="chooseMode('${m.key}')">
+        <i class="fas ${m.icon}"></i>
+        <div class="mc-title">${m.label}</div>
+        <div class="mc-desc">${m.desc}</div>
+      </button>`).join('')}</div>`;
+}
+function chooseMode(key){
+  studyMode = key;
+  if(_lockedDeckId){ studyDeckId = _lockedDeckId; wizardStep = 3; }
+  else wizardStep = 2;
+  renderWizard();
+}
+
+/* ============ STEP 2 — choose a deck for the chosen mode ============ */
+function renderDeckStep(){
+  const decks = userDecks();
+  const modeLabel = MODES.find(m => m.key === studyMode)?.label || '';
+  let html = `<h1 class="page-title">${modeLabel}</h1>
+    <p class="subtle">Choose a deck to apply this mode to.</p>`;
+  if(!decks.length){
+    html += '<div class="empty-note">You don\'t have any decks yet. <a href="add.html">Create your first deck</a> to start studying!</div>';
+  } else {
+    html += `<div class="step-list">${decks.map(d => {
+      const learned = d.cards.filter(c => c.learned).length;
+      const pct = d.cards.length ? Math.round((learned / d.cards.length) * 100) : 0;
+      const empty = !d.cards.length;
+      return `<button class="step-deck-btn" ${empty ? 'disabled' : ''} onclick="chooseDeck('${d.id}')">
+        <span><span class="sd-dot" style="background:${d.color}"></span>${esc(d.name)}</span>
+        <span class="sd-count">${empty ? 'No cards yet' : `${d.cards.length} card${d.cards.length === 1 ? '' : 's'} · ${pct}% mastered`}</span>
+      </button>`;
+    }).join('')}</div>`;
+  }
+  document.getElementById('wizardArea').innerHTML = html;
+}
+function chooseDeck(id){
+  const deck = getDeck(id);
+  if(!deck || !deck.cards.length) return;
+  studyDeckId = id; wizardStep = 3; renderWizard();
+}
+
+/* ============ STEP 3 — the study session ============ */
+function enterStep3(){
+  const deck = getDeck(studyDeckId);
+  if(!deck || !studyMode){ wizardStep = 1; return renderWizard(); }
+  studyOrder = null;
+  studyIdx = 0;
+  session = {startedAt: Date.now(), reviewed: 0, known: 0};
+  recordStudyActivity();
+  touchDeckStudied(deck.id);
+  if(SETTINGS.cardOrder === 'shuffle' && studyMode !== 'match') shuffleStudy(true);
+  renderSession();
+}
+function getStudyList(deck){
+  if(!studyOrder || studyOrder.deckId !== deck.id) studyOrder = {deckId: deck.id, list: [...deck.cards]};
+  return studyOrder.list;
+}
+function shuffleStudy(silent){
+  const deck = getDeck(studyDeckId); if(!deck || deck.cards.length < 2) return;
+  studyOrder = {deckId: deck.id, list: shuffle(deck.cards)};
+  studyIdx = 0;
+  if(!silent){ showToast('Shuffled!', ''); renderSession(); }
+}
+function stepCard(dir){
+  const deck = getDeck(studyDeckId); if(!deck) return;
+  const list = getStudyList(deck);
+  if(!list.length) return;
+  studyIdx = (studyIdx + dir + list.length) % list.length;
+  renderSession();
+}
+function renderProgressBar(deck){
+  const learned = deck.cards.filter(c => c.learned).length;
+  const pct = deck.cards.length ? Math.round((learned / deck.cards.length) * 100) : 0;
+  return `<div class="progress-bar" title="${learned} of ${deck.cards.length} mastered"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+    <div class="progress-caption">${learned}/${deck.cards.length} mastered (${pct}%)</div>`;
+}
+function sessionHeader(deck, list){
+  return `<div class="deck-select-bar">
+    <div class="cur"><span>${MODES.find(m => m.key === studyMode)?.label}</span><b>${esc(deck.name)}</b></div>
+    <div class="right-controls">
+      ${studyMode !== 'match' ? `<button class="shuffle-btn" onclick="shuffleStudy()" title="Shuffle card order"><i class="fas fa-shuffle"></i> Shuffle</button>` : ''}
+      <button class="small-btn" onclick="endSession()"><i class="fas fa-flag-checkered"></i> End Session</button>
+    </div>
+  </div>`;
+}
+
+function renderSession(){
+  const deck = getDeck(studyDeckId);
+  const area = document.getElementById('wizardArea');
+  if(!deck){ wizardStep = 1; return renderWizard(); }
+
+  if(studyMode === 'match') return renderMatch(deck);
+
+  const list = getStudyList(deck);
+  if(!list.length){ area.innerHTML = sessionHeader(deck, list) + '<div class="empty-note">No cards to study.</div>'; return; }
+  if(studyIdx >= list.length) studyIdx = 0;
+  const card = list[studyIdx];
+  if(studyMode === 'memorize') return renderMemorize(deck, list, card);
+  if(studyMode === 'choice') return renderChoice(deck, list, card);
+  if(studyMode === 'write') return renderWrite(deck, list, card);
+  if(studyMode === 'tutor') return renderTutor(deck, list, card);
+}
+
+/* ---------------- Memorize ---------------- */
+let _autoFlipTimer = null;
+function renderMemorize(deck, list, card){
+  clearTimeout(_autoFlipTimer);
+  document.getElementById('wizardArea').innerHTML = `
+    ${sessionHeader(deck, list)}
+    ${renderProgressBar(deck)}
+    <div class="flip-stage"><div class="flip-card" id="flipCard" tabindex="0"
+      onclick="flipCard()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();flipCard();}">
+      <div class="flip-face front">${esc(card.term)}<i class="fas fa-sync-alt flip-indicator"></i></div>
+      <div class="flip-face back">${esc(card.def)}<i class="fas fa-sync-alt flip-indicator"></i></div>
+    </div></div>
+    <p class="tap-hint">Tap the card (or press Space) to flip</p>
+    <div class="know-row">
+      <button class="know-btn no" onclick="markLearned('${deck.id}','${card.id}',false)"><i class="fas fa-rotate-left"></i> Review Later</button>
+      <button class="know-btn yes" onclick="markLearned('${deck.id}','${card.id}',true)"><i class="fas fa-check-circle"></i> Mark as Known</button>
+    </div>
+    <div class="nav-row">
+      <button class="navbtn prev" onclick="stepCard(-1)" ${list.length < 2 ? 'disabled' : ''}>Previous</button>
+      <button class="navbtn next" onclick="stepCard(1)" ${list.length < 2 ? 'disabled' : ''}>Next</button>
+    </div>
+    <div class="counter">Card ${studyIdx + 1} of ${list.length}</div>`;
+  if(SETTINGS.autoFlip){
+    const delay = {fast:1200, normal:2500, slow:4500}[SETTINGS.flipDuration] || 2500;
+    _autoFlipTimer = setTimeout(() => { const fc = document.getElementById('flipCard'); if(fc && !fc.classList.contains('flipped')) flipCard(); }, delay);
+  }
+}
+function flipCard(){ document.getElementById('flipCard').classList.toggle('flipped'); playTone('flip'); }
+function markLearned(deckId, cardId, val){
+  setCardLearned(deckId, cardId, val);
+  playTone(val ? 'correct' : 'wrong');
+  if(session){ session.reviewed++; if(val) session.known++; }
+  const deck = getDeck(deckId);
+  const list = getStudyList(deck);
+  if(list.length > 1) setTimeout(() => stepCard(1), 250);
+  else renderSession();
+}
+
+/* ---------------- Multiple Choice ---------------- */
+function renderChoice(deck, list, card){
+  const others = deck.cards.filter(c => c.id !== card.id).map(c => c.def);
+  const wrong = shuffle(others).slice(0, Math.min(3, others.length));
+  const opts = shuffle([card.def, ...wrong]);
+  document.getElementById('wizardArea').innerHTML = `
+    ${sessionHeader(deck, list)}
+    ${renderProgressBar(deck)}
+    <div class="static-face">${esc(card.term)}</div>
+    <div class="choice-list">${opts.map(o => `<button class="choice-btn" data-correct="${o === card.def}" onclick="checkChoice(this,'${deck.id}','${card.id}')">${esc(o)}</button>`).join('')}</div>
+    <p class="choice-explain hidden" id="choiceExplain"></p>
+    <div class="nav-row" style="margin-top:16px;"><button class="navbtn prev" onclick="stepCard(-1)">Previous</button><button class="navbtn next" onclick="stepCard(1)">Next</button></div>
+    <div class="counter">Card ${studyIdx + 1} of ${list.length} &nbsp;·&nbsp; press 1–4 to answer</div>`;
+}
+function checkChoice(btn, deckId, cardId){
+  const ok = btn.dataset.correct === 'true';
+  document.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+  btn.classList.add(ok ? 'correct' : 'wrong');
+  if(!ok) document.querySelectorAll('.choice-btn').forEach(b => { if(b.dataset.correct === 'true') b.classList.add('correct'); });
+  const ex = document.getElementById('choiceExplain');
+  ex.classList.remove('hidden');
+  ex.innerHTML = ok ? '<i class="fas fa-check-circle"></i> Nice! That was correct.' : '<i class="fas fa-times-circle"></i> Not quite — the correct definition is highlighted in green.';
+  playTone(ok ? 'correct' : 'wrong');
+  setCardLearned(deckId, cardId, ok);
+  if(session){ session.reviewed++; if(ok) session.known++; }
+}
+
+/* ---------------- Write ---------------- */
+function normalizeAnswer(s){ return s.toLowerCase().trim().replace(/[.,!?;:'"()\-]/g, '').replace(/\s+/g, ' '); }
+function levenshtein(a, b){
+  const m = a.length, n = b.length;
+  const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
+  for(let i = 0; i <= m; i++) dp[i][0] = i;
+  for(let j = 0; j <= n; j++) dp[0][j] = j;
+  for(let i = 1; i <= m; i++) for(let j = 1; j <= n; j++)
+    dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j-1], dp[i-1][j], dp[i][j-1]);
+  return dp[m][n];
+}
+function renderWrite(deck, list, card){
+  document.getElementById('wizardArea').innerHTML = `
+    ${sessionHeader(deck, list)}
+    ${renderProgressBar(deck)}
+    <div class="static-face">${esc(card.term)}</div>
+    <input class="write-input" id="writeAns" placeholder="Type the definition..." autocomplete="off">
+    <div style="display:flex; gap:10px; margin-top:12px;">
+      <button class="btn-secondary" onclick="showHint('${encodeURIComponent(card.def)}')"><i class="fas fa-lightbulb"></i> Hint</button>
+      <button class="btn-primary" style="flex:2;" onclick="checkWrite('${deck.id}','${card.id}','${encodeURIComponent(card.def)}')">Check Answer</button>
+    </div>
+    <div class="hint-text hidden" id="hintText"></div>
+    <div class="feedback" id="writeFeedback"></div>
+    <div class="nav-row" style="margin-top:16px;"><button class="navbtn prev" onclick="stepCard(-1)">Previous</button><button class="navbtn next" onclick="stepCard(1)">Next</button></div>
+    <div class="counter">Card ${studyIdx + 1} of ${list.length}</div>`;
+  document.getElementById('writeAns').addEventListener('keydown', e => { if(e.key === 'Enter') checkWrite(deck.id, card.id, encodeURIComponent(card.def)); });
+  document.getElementById('writeAns').focus();
+}
+function showHint(defEnc){
+  const def = decodeURIComponent(defEnc);
+  const hint = def.slice(0, Math.min(3, def.length));
+  const el = document.getElementById('hintText');
+  el.innerHTML = `<i class="fas fa-lightbulb"></i> Starts with: "${hint}..."`;
+  el.classList.remove('hidden');
+}
+function checkWrite(deckId, cardId, correctEnc){
+  const raw = document.getElementById('writeAns').value;
+  const val = normalizeAnswer(raw);
+  const correct = normalizeAnswer(decodeURIComponent(correctEnc));
+  const fb = document.getElementById('writeFeedback');
+  fb.classList.add('show');
+  const dist = levenshtein(val, correct);
+  const isExact = dist === 0;
+  const isClose = !isExact && correct.length > 3 && dist <= Math.max(1, Math.floor(correct.length * 0.15));
+  let ok;
+  if(isExact){
+    fb.className = 'feedback show ok'; fb.innerHTML = '<i class="fas fa-check-circle"></i> Correct!';
+    playTone('correct'); ok = true;
+  } else if(isClose){
+    fb.className = 'feedback show almost';
+    fb.innerHTML = `<i class="fas fa-triangle-exclamation"></i> Almost! You wrote "${esc(raw.trim())}" — correct answer: "${decodeURIComponent(correctEnc)}"`;
+    playTone('correct'); ok = true;
+  } else {
+    fb.className = 'feedback show no';
+    fb.innerHTML = `<i class="fas fa-times-circle"></i> Not quite. Correct answer: ${decodeURIComponent(correctEnc)}`;
+    playTone('wrong'); ok = false;
+  }
+  setCardLearned(deckId, cardId, ok);
+  if(session){ session.reviewed++; if(ok) session.known++; }
+}
+
+/* ---------------- AI Tutor (simulated guided practice) ---------------- */
+function renderTutor(deck, list, card){
+  const tip = TUTOR_TIPS[Math.floor(Math.random() * TUTOR_TIPS.length)];
+  document.getElementById('wizardArea').innerHTML = `
+    ${sessionHeader(deck, list)}
+    ${renderProgressBar(deck)}
+    <div class="static-face">${esc(card.term)}</div>
+    <div class="tutor-bubble"><i class="fas fa-robot"></i> ${esc(tip)} <span style="opacity:.6; font-size:11px;">(simulated guidance)</span></div>
+    <div id="tutorAnswerWrap">
+      <button class="btn-secondary" style="width:100%;" onclick="revealTutorAnswer('${encodeURIComponent(card.def)}')"><i class="fas fa-eye"></i> Show Answer</button>
+    </div>
+    <div class="know-row hidden" id="tutorKnowRow">
+      <button class="know-btn no" onclick="markLearned('${deck.id}','${card.id}',false)"><i class="fas fa-rotate-left"></i> Review Later</button>
+      <button class="know-btn yes" onclick="markLearned('${deck.id}','${card.id}',true)"><i class="fas fa-check-circle"></i> Mark as Known</button>
+    </div>
+    <div class="nav-row"><button class="navbtn prev" onclick="stepCard(-1)">Previous</button><button class="navbtn next" onclick="stepCard(1)">Next</button></div>
+    <div class="counter">Card ${studyIdx + 1} of ${list.length}</div>`;
+}
+function revealTutorAnswer(defEnc){
+  document.getElementById('tutorAnswerWrap').innerHTML = `<div class="static-face" style="background:var(--blue-100); color:var(--ink); box-shadow:none;">${esc(decodeURIComponent(defEnc))}</div>`;
+  document.getElementById('tutorKnowRow').classList.remove('hidden');
+}
+
+/* ---------------- Match ---------------- */
+function renderMatch(deck){
+  const area = document.getElementById('wizardArea');
+  const list = deck.cards;
+  if(list.length < 2){
+    area.innerHTML = `${sessionHeader(deck, list)}${renderProgressBar(deck)}<div class="empty-note">Add at least 2 cards to this deck to play Match.</div>`;
+    return;
+  }
+  const cards = shuffle(deck.cards).slice(0, 6);
+  matchSel = null; matchSolved = new Set();
+  const terms = cards.map(c => ({id: c.id, text: c.term, type: 'term'}));
+  const defs = cards.map(c => ({id: c.id, text: c.def, type: 'def'}));
+  const tiles = shuffle([...terms, ...defs]);
+  window._matchTiles = tiles;
+  area.innerHTML = `
+    ${sessionHeader(deck, list)}
+    ${renderProgressBar(deck)}
+    <p class="subtle">Tap a term, then its matching definition.</p>
+    <div class="match-grid" id="matchGrid">${tiles.map((t, i) => `<div class="match-tile" data-i="${i}" tabindex="0" onclick="matchClick(${i})" onkeydown="if(event.key==='Enter'){matchClick(${i});}">${esc(t.text)}</div>`).join('')}</div>`;
+}
+function matchClick(i){
+  const tiles = window._matchTiles;
+  const els = document.querySelectorAll('.match-tile');
+  if(matchSolved.has(i) || els[i].classList.contains('sel')) return;
+
+  if(matchSel === null){ matchSel = i; els[i].classList.add('sel'); return; }
+
+  const a = tiles[matchSel], b = tiles[i];
+  if(a.id === b.id && a.type !== b.type){
+    matchSolved.add(matchSel); matchSolved.add(i);
+    [matchSel, i].forEach(idx => { els[idx].classList.remove('sel'); els[idx].classList.add('done'); });
+    playTone('correct');
+    setCardLearned(studyDeckId, a.id, true);
+    if(session){ session.reviewed++; session.known++; }
+    matchSel = null;
+    if(matchSolved.size === tiles.length) setTimeout(showMatchCelebration, 300);
+  } else {
+    const prevSel = matchSel;
+    els[i].classList.add('sel');
+    [prevSel, i].forEach(idx => els[idx].classList.add('wrong'));
+    playTone('wrong');
+    matchSel = null;
+    setTimeout(() => { [prevSel, i].forEach(idx => els[idx].classList.remove('sel', 'wrong')); }, 500);
+  }
+}
+function showMatchCelebration(){
+  const area = document.getElementById('wizardArea');
+  const cheer = document.createElement('div');
+  cheer.className = 'celebrate';
+  cheer.innerHTML = `<div class="celebrate-emoji"><i class="fas fa-trophy"></i></div><div class="celebrate-text">All matched! Nice work.</div><button class="btn-primary" style="width:auto;padding:10px 22px;" onclick="renderMatch(getDeck(studyDeckId))"><i class="fas fa-rotate-right"></i> Play Again</button>`;
+  area.appendChild(cheer);
+  playTone('success');
+}
+
+/* ---------------- End of session summary ---------------- */
+function endSession(){
+  const deck = getDeck(studyDeckId);
+  const elapsedSec = session ? Math.round((Date.now() - session.startedAt) / 1000) : 0;
+  addStudySeconds(elapsedSec);
+  logStudySession(deck ? deck.name : 'Deck', MODES.find(m => m.key === studyMode)?.label || studyMode);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay open';
+  overlay.innerHTML = `
+    <div class="modal session-summary">
+      <i class="fas fa-flag-checkered"></i>
+      <h3>Session Complete!</h3>
+      <p style="color:var(--muted); font-size:13.5px; margin-bottom:16px;">
+        ${session ? session.reviewed : 0} card${session && session.reviewed === 1 ? '' : 's'} reviewed ·
+        ${session ? session.known : 0} marked known ·
+        ${formatDuration(elapsedSec)}
+      </p>
+      <button class="btn-primary" onclick="window.location.href='dashboard.html'"><i class="fas fa-house"></i> Back to Dashboard</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+/* ---------------- Keyboard shortcuts ---------------- */
+document.addEventListener('keydown', e => {
+  if(wizardStep !== 3) return;
+  const tag = document.activeElement.tagName;
+  if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // don't hijack typing
+  const deck = getDeck(studyDeckId);
+  if(!deck || !deck.cards.length) return;
+
+  if(studyMode !== 'match' && e.key === 'ArrowRight'){ stepCard(1); }
+  else if(studyMode !== 'match' && e.key === 'ArrowLeft'){ stepCard(-1); }
+  else if(studyMode === 'memorize' && e.key === ' '){ e.preventDefault(); flipCard(); }
+  else if(studyMode === 'choice' && /^[1-4]$/.test(e.key)){
+    const idx = parseInt(e.key, 10) - 1;
+    const btns = document.querySelectorAll('.choice-btn');
+    if(btns[idx] && !btns[idx].disabled) btns[idx].click();
+  }
+});
+
+refreshDecks().then(() => {
+  _lockedDeckId = (_requestedDeck && getDeck(_requestedDeck)) ? _requestedDeck : null;
+  renderWizard();
+});
+</script>
+</body>
+</html>
